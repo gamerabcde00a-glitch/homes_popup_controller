@@ -1,339 +1,178 @@
 
-<!-- Interaction widget to Pop up CRM in a new tab when call is connected and close tab when dispositioned -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>HOMES Popup Controller</title>
-
-  <!-- Genesys Cloud Platform SDK + Client App SDK -->
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
-
+  <meta charset="UTF-8" />
+  <title>HOMES Popup Controller (Standalone)</title>
   <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
     .info-container {
-      background-color: #f5f5f5;
-      padding: 20px;
-      border-radius: 5px;
-      margin-bottom: 20px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
+      background-color: #f5f5f5; padding: 16px; border-radius: 6px; margin-bottom: 16px;
     }
-    .info-container p { margin: 5px 0; }
-    /* PATCH: a little spacing for the arm button */
-    #armPopBtn { margin-top: 8px; padding: 6px 10px; }
+    .row { margin: 8px 0; }
+    .row label { display: inline-block; width: 120px; }
+    input[type="text"] { width: 480px; padding: 6px; }
+    button { padding: 6px 10px; margin-right: 8px; }
     #armedState { margin-left: 8px; color: #0b5cab; }
+    #log { font-size: 13px; color: #333; margin-top: 10px; }
+    #log p { margin: 4px 0; }
+    #log .dim { color: #666; }
+    .muted { color: #666; }
   </style>
 </head>
 <body>
   <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller...</p>
-    <!-- PATCH: Arm button so an agent provides one click to grant user activation -->
-    <button id="armPopBtn" type="button">Enable CRM pop</button>
-    <span id="armedState"></span>
+    <div class="row"><strong>Status:</strong> HOMES Popup Controller (Standalone, no Genesys)</div>
+
+    <!-- CRM URL input (you can lock this down and hide the input if preferred) -->
+    <div class="row">
+      <label for="crmUrl">CRM URL</label>
+      <input id="crmUrl" type="text" placeholder="https://crm.example.com/" />
+    </div>
+
+    <!-- Controls -->
+    <div class="row">
+      <button id="armPopBtn" type="button">Enable CRM pop</button>
+      <span id="armedState" class="muted"></span>
+    </div>
+
+    <div class="row">
+      <button id="openCrmBtn" type="button">Open CRM</button>
+      <button id="closeCrmBtn" type="button">Close CRM</button>
+    </div>
+
+    <div id="log"></div>
   </div>
 
   <script>
-    const VERSION = '1.0.3 (patched for user activation)';
-    const blockedAgentIds = [
-       
-    ];
+    const VERSION = '2.0.0 (Standalone, no Genesys, no param passing)';
 
-    document.getElementById('statusBox').innerHTML =
-      `<p><strong>Status:</strong> HOMES Popup Controller v${VERSION}</p>
-       <button id="armPopBtn" type="button">Enable CRM pop</button>
-       <span id="armedState"></span>`;
-
-    const platformClient = require('platformClient');
-    const client = platformClient.ApiClient.instance;
-    const notificationsApi = new platformClient.NotificationsApi();
-    const conversationsApi = new platformClient.ConversationsApi();
-    const usersApi = new platformClient.UsersApi();
-
-    const existingCallCheckInterval = 2500;
-    const existingCallMaxChecks = 20;
-
-    let config = null;
     let crmTab = null;
-
-    // PATCH: pre-armed blank window created on real click (carries user activation)
     let preArmedWindow = null;
 
-    function updateStatus(message) {
-      const statusBox = document.getElementById('statusBox');
+    const el = {
+      statusBox: document.getElementById('statusBox'),
+      crmUrl: document.getElementById('crmUrl'),
+      armPopBtn: document.getElementById('armPopBtn'),
+      openCrmBtn: document.getElementById('openCrmBtn'),
+      closeCrmBtn: document.getElementById('closeCrmBtn'),
+      armedState: document.getElementById('armedState'),
+      log: document.getElementById('log')
+    };
+
+    function updateStatus(message, dim = false) {
       const p = document.createElement('p');
       p.textContent = message;
-      statusBox.appendChild(p);
-      // PATCH: show userActivation for diagnostics
+      if (dim) p.classList.add('dim');
+      el.log.appendChild(p);
+
+      // For diagnostics, show userActivation state if available
       try {
         if (navigator.userActivation) {
           const ua = navigator.userActivation;
           const diag = document.createElement('p');
-          diag.style.color = '#666';
+          diag.classList.add('dim');
           diag.textContent = `userActivation: isActive=${ua.isActive} hasBeenActive=${ua.hasBeenActive}`;
-          statusBox.appendChild(diag);
+          el.log.appendChild(diag);
         }
       } catch {}
     }
 
-    function log(...args) {
-      console.log('[HOMES Popup Controller]', ...args);
-    }
-
     function setArmedState(msg) {
-      const el = document.getElementById('armedState');
-      if (el) el.textContent = msg || '';
+      el.armedState.textContent = msg || '';
     }
 
-    function getQueryParams() {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcUsePopupAuth: params.get('gcUsePopupAuth'),
-        debug: params.get('debug'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
-      };
-    }
-
-    function initialiseAndStorePluginConfiguration() {
-      const params = getQueryParams();
-      for (const [key, value] of Object.entries(params)) {
-        if (value !== null) sessionStorage.setItem(key, value);
-      }
-      log('Stored query parameters in sessionStorage:', params);
-    }
-
-    function getStoredConfig() {
-      const cfg = {
-        gc_clientId: sessionStorage.getItem('gc_clientId'),
-        gc_region: sessionStorage.getItem('gc_region'),
-        gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-        gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
-        debug: sessionStorage.getItem('debug'),
-        gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-        gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
-      };
-      log('Retrieved configuration from sessionStorage:', cfg);
-      return cfg;
-    }
-
-    // PATCH: Open CRM using a pre-armed tab if available; otherwise prompt agent to arm
-    function openCrmWithUserActivation(popUrl) {
-      const url = new URL(popUrl);
-
-      // Prefer the pre-armed tab (has user activation from a real click)
-      if (preArmedWindow && !preArmedWindow.closed) {
-        preArmedWindow.location.href = url.toString();
-        crmTab = preArmedWindow;
-        preArmedWindow = null;
-        setArmedState('Opened ✔');
-        updateStatus(`Navigated armed tab to: ${url.toString()}`);
-        try { crmTab.opener = null; } catch {}
-        return;
-      }
-
-      // Fallback: try to open (may be blocked / lack activation), then instruct agent
-      const opened = window.open(url.toString(), '_blank');
-      if (opened) {
-        crmTab = opened;
-        updateStatus(`Opened CRM tab (no pre-arming).`);
-      } else {
-        updateStatus('Popup blocked or restricted. Click "Enable CRM pop" then retry.');
-      }
-    }
-
-    async function checkExistingActiveCalls(user, checkCounter) {
-      if (checkCounter > existingCallMaxChecks) {
-        updateStatus(`Call control : Maximum number of checks reached.`);
-        return;
-      }
-
-      const activeCalls = await conversationsApi.getConversationsCalls();
-
-      if (activeCalls?.total == 0) {
-        updateStatus(`Call control : No active calls`);
-        await new Promise(resolve => setTimeout(resolve, existingCallCheckInterval));
-        checkExistingActiveCalls(user, checkCounter + 1);
-        return;
-      }
-
-      for (const call of activeCalls.entities || []) {
-        const participants = call.participants || [];
-        const agentParticipant = participants.find(p => p.purpose === 'agent' && p?.user?.id === user.id);
-        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-        if (popUrl == undefined) {
-          updateStatus(`Call control : No Homes pop up associated with this call.`);
-          return;
-        }
-        if (agentParticipant?.state !== 'connected') {
-          updateStatus(`Call control : Agent is not connected.`);
-          await new Promise(resolve => setTimeout(resolve, existingCallCheckInterval));
-          checkExistingActiveCalls(user, checkCounter + 1);
-          return;
-        }
-        if (crmTab) {
-          updateStatus(`Call control : Homes tab is open`);
-          return;
-        }
-
-        if (agentParticipant?.state === 'connected' && popUrl && !crmTab) {
-          const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-          connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-          const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
-
-          if (isFirstAgent) {
-            const url = new URL(popUrl);
-            url.searchParams.set('p2', user.email);
-            updateStatus(`Call control : Opening Homes tab from existing call (armed pattern): ${url.toString()}`);
-            // PATCH: use the armed open pattern
-            openCrmWithUserActivation(url.toString());
-          } else {
-            updateStatus(`Call control : Homes pops up for the initial agent only.`);
-          }
-        }
-      }
-    }
-
-    async function init() {
+    function normaliseUrl(u) {
+      // If user entered a bare host, try to make it a valid URL
       try {
-        if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-          throw new Error('Missing required configuration parameters.');
+        return new URL(u).toString();
+      } catch {
+        // If no scheme, try https://
+        try {
+          return new URL('https://' + u).toString();
+        } catch {
+          return null;
         }
-
-        client.setEnvironment(config.gc_region);
-        client.setPersistSettings(true, 'homesPopupController');
-
-        updateStatus('Authenticating with Genesys Cloud...');
-        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-        updateStatus('Authentication successful.');
-
-        const user = await usersApi.getUsersMe();
-        updateStatus(`Logged in as: ${user.name}`);
-
-        if (blockedAgentIds.includes(user.id)) {
-          updateStatus(`Agent ${user.name} is blocked from using this widget.`);
-          return;
-        }
-
-        const channel = await notificationsApi.postNotificationsChannels();
-        updateStatus('Notification channel created.');
-
-        const topic = `v2.users.${user.id}.conversations.calls`;
-        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-        updateStatus(`Subscribed to topic: ${topic}`);
-
-        const socket = new WebSocket(channel.connectUri);
-        socket.onopen = () => updateStatus('WebSocket connection opened.');
-        socket.onerror = (err) => {
-          console.error('[HOMES Popup Controller] WebSocket error:', err);
-          updateStatus('WebSocket error occurred.');
-        };
-        socket.onclose = () => updateStatus('WebSocket connection closed.');
-
-        socket.onmessage = async (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (!data.topicName || !data.eventBody) return;
-
-            const interaction = data.eventBody;
-            const participants = interaction.participants || [];
-            const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-            if (!agentParticipant) return;
-
-            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-            if (agentParticipant.state === 'connected') {
-              const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-              connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-              const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
-
-              if (isFirstAgent && popUrl && !crmTab) {
-                const url = new URL(popUrl);
-                url.searchParams.set('p2', user.email);
-                updateStatus(`Opening HOMES tab (armed pattern): ${url.toString()}`);
-                // PATCH: use the armed open pattern
-                openCrmWithUserActivation(url.toString());
-              }
-            }
-
-            if (agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') {
-              const wrapup = agentParticipant.wrapup;
-              if (wrapup && crmTab && !crmTab.closed) {
-                updateStatus('Closing HOMES tab after wrap-up.');
-                crmTab.close();
-                crmTab = null;
-              }
-            }
-          } catch (err) {
-            console.error('[HOMES Popup Controller] Error handling WebSocket message:', err);
-            updateStatus('Error processing interaction event.');
-          }
-        };
-
-        if (window._genesys?.widgets?.bus) {
-          window._genesys.widgets.bus.subscribe('lifecycle', (e) => {
-            if (e?.eventName === 'stop') {
-              if (crmTab && !crmTab.closed) {
-                crmTab.close();
-                crmTab = null;
-                updateStatus('CRM tab closed due to widget lifecycle stop event.');
-              }
-              if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.close();
-                updateStatus('WebSocket closed due to widget lifecycle stop event.');
-              }
-            }
-          });
-        }
-
-        // Check for existing active calls
-        checkExistingActiveCalls(user, 0);
-
-      } catch (err) {
-        console.error('[HOMES Popup Controller] Initialization error:', err);
-        updateStatus(`Initialization error: ${err.message}`);
       }
     }
 
-    initialiseAndStorePluginConfiguration();
-    config = getStoredConfig();
+    // Optionally allow ?crmUrl=... to prefill the field (no params are forwarded to the CRM tab)
+    (function prefillFromQuery() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const qUrl = params.get('crmUrl');
+        if (qUrl) el.crmUrl.value = qUrl;
+      } catch {}
+    })();
 
-    // Genesys Client App SDK bootstrapping
-    var ClientApp = window.purecloud.apps.ClientApp;
-    var myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
-
-    myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus('Application bootstrapped.');
-      myClientApp.lifecycle.bootstrapped();
-    });
-
-    myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('Application stopped.');
-      myClientApp.lifecycle.stopped();
-    });
-
-    // PATCH: ARM BUTTON — open a blank tab synchronously to capture user activation
-    document.getElementById('armPopBtn')?.addEventListener('click', () => {
-      // open about:blank synchronously (uses user gesture token)
-      preArmedWindow = window.open('', '_blank');
+    // --- Arm button: open about:blank synchronously to capture user gesture ---
+    el.armPopBtn.addEventListener('click', () => {
+      preArmedWindow = window.open('', '_blank'); // synchronous, carries user activation
       if (preArmedWindow) {
-        preArmedWindow.document.write('<p style="font-family:sans-serif">HOMES will open here when the call connects…</p>');
-        setArmedState('Armed ✔ — waiting for call connection');
-        updateStatus('CRM pop is armed (blank tab opened with user activation).');
+        preArmedWindow.document.write('<p style="font-family:sans-serif">HOMES/CRM will open here…</p>');
+        setArmedState('Armed ✔ — ready to open CRM');
+        updateStatus('Pre-armed blank tab opened with user activation.');
       } else {
         setArmedState('Popup blocked — enable popups and click again');
         updateStatus('Popup was blocked by the browser.');
       }
     });
 
-    init();
+    // --- Open CRM (uses pre-armed tab if available) ---
+    el.openCrmBtn.addEventListener('click', () => {
+      const rawUrl = el.crmUrl.value.trim();
+      const target = normaliseUrl(rawUrl);
+
+      if (!rawUrl) {
+        updateStatus('Please enter a CRM URL before opening.');
+        el.crmUrl.focus();
+        return;
+      }
+      if (!target) {
+        updateStatus(`Invalid URL: "${rawUrl}". Try including scheme, e.g., https://example.com`);
+        el.crmUrl.focus();
+        return;
+      }
+
+      // Prefer the pre-armed tab (best compatibility)
+      if (preArmedWindow && !preArmedWindow.closed) {
+        preArmedWindow.location.href = target; // NOTE: no parameters are added
+        crmTab = preArmedWindow;
+        preArmedWindow = null;
+        setArmedState('Opened ✔');
+        updateStatus(`Navigated armed tab to: ${target}`);
+        try { crmTab.opener = null; } catch {}
+        return;
+      }
+
+      // Fallback: attempt to open directly (may be blocked)
+      const opened = window.open(target, '_blank'); // NOTE: no parameters are added
+      if (opened) {
+        crmTab = opened;
+        updateStatus('Opened CRM tab (no pre-arming).');
+        setArmedState('Opened ✔');
+        try { crmTab.opener = null; } catch {}
+      } else {
+        setArmedState('Popup blocked — click "Enable CRM pop" first');
+        updateStatus('Popup blocked. Click "Enable CRM pop" then click "Open CRM".');
+      }
+    });
+
+    // --- Close CRM ---
+    el.closeCrmBtn.addEventListener('click', () => {
+      if (crmTab && !crmTab.closed) {
+        crmTab.close();
+        updateStatus('CRM tab closed on request.');
+      } else {
+        updateStatus('No CRM tab to close.', true);
+      }
+      crmTab = null;
+      setArmedState('');
+    });
+
+    // Initial banner
+    updateStatus(`HOMES Popup Controller ${VERSION}`);
+    updateStatus('Genesys integrations removed. No data is passed to the CRM page.');
   </script>
 </body>
 </html>
