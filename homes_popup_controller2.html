@@ -148,8 +148,9 @@
 
     async function init() {
       try {
-        
+        alert('init starting');
         if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+			 alert('Missing required configuration parameters.');
           throw new Error('Missing required configuration parameters.');
         }
 
@@ -159,11 +160,11 @@
         updateStatus('Authenticating with Genesys Cloud...');
         await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
         updateStatus('Authentication successful.');
-
+		alert('updateStatus Authentication successful. ');
         const user = await usersApi.getUsersMe();
 		
 		updateStatus(`Logged in as: ${user.name}`);
-
+		alert('Logged in with ' + user.id);
         if (blockedAgentIds.includes(user.id)) {
             updateStatus(`Agent ${user.name} is blocked from using this widget.`);
             return;
@@ -171,7 +172,7 @@
 
         const channel = await notificationsApi.postNotificationsChannels();
         updateStatus('Notification channel created.');
-
+		alert('Notification channel created.');
         const topic = `v2.users.${user.id}.conversations.calls`;
         await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
         updateStatus(`Subscribed to topic: ${topic}`);
@@ -277,3 +278,4 @@
 </body>
 
 </html>
+
