@@ -12,15 +12,17 @@
 
         window.onload = function () {
             const targetUrl = getQueryParam("URL");
-            alert(getQueryParam("gc_conversationId"));
-            alert(getQueryParam("gcLangTag"));
-            alert(getQueryParam("gcHostOrigin"));
-            alert(getQueryParam("gcTargetEnv"));
+            alert("gc_conversationId=" + getQueryParam("gc_conversationId"));
+            alert("gcLangTag=" + getQueryParam("gcLangTag"));
+            alert("gcHostOrigin="+ getQueryParam("gcHostOrigin"));
+            alert("gcTargetEnv="+getQueryParam("gcTargetEnv"));
             
             if (targetUrl) {
+                alert("targetUrl");
                 // Open in a new tab
                 window.open(targetUrl,'_blank', 'noopener,noreferrer');
             } else {
+                alert("targetUrl else");
                 window.open('https://gamerabcde00a-glitch.github.io/mock-crm-lite/console.html?page=home.html', '_blank', 'noopener,noreferrer');
                
             }
@@ -31,6 +33,7 @@
     <h2 id="message">Opening URL...</h2>
 </body>
 </html>
+
 
 
 
