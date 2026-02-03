@@ -156,7 +156,7 @@
 
         client.setEnvironment(config.gc_region);
         client.setPersistSettings(true, 'homesPopupController');
-
+		alert('after setting env, now trying to authenticate');
         updateStatus('Authenticating with Genesys Cloud...');
         await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
         updateStatus('Authentication successful.');
@@ -278,6 +278,7 @@
 </body>
 
 </html>
+
 
 
 
