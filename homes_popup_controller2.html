@@ -171,78 +171,7 @@
             return;
         }
 
-        const channel = await notificationsApi.postNotificationsChannels();
-        updateStatus('Notification channel created.');
-		alert('Notification channel created.');
-        const topic = `v2.users.${user.id}.conversations.calls`;
-        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-        updateStatus(`Subscribed to topic: ${topic}`);
-
-        const socket = new WebSocket(channel.connectUri);
-        socket.onopen = () => updateStatus('WebSocket connection opened.');
-        socket.onerror = (err) => {
-          console.error('[HOMES Popup Controller] WebSocket error:', err);
-          updateStatus('WebSocket error occurred.');
-        };
-        socket.onclose = () => updateStatus('WebSocket connection closed.');
-
-        socket.onmessage = async (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (!data.topicName || !data.eventBody) return;
-
-            const interaction = data.eventBody;
-            const participants = interaction.participants || [];
-            const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-
-            if (!agentParticipant) return;
-
-            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-            if (agentParticipant.state === 'connected') {
-              const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-              connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-
-              const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
-
-              if (isFirstAgent && popUrl && !crmTab) {
-				  alert('isFirstAgent - true and popUrl and !crmTab');
-                const url = new URL(popUrl);
-                url.searchParams.set('p2', user.email); // Add the agent's email as 'p2'
-                updateStatus(`Opening HOMES tab: ${url.toString()}`);
-                crmTab = window.open(url.toString(), '_blank', 'noopener,noreferrer');
-              }
-            }
-
-            if (agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') {
-              const wrapup = agentParticipant.wrapup;
-              if (wrapup && crmTab && !crmTab.closed) {
-                updateStatus('Closing HOMES tab after wrap-up.');
-                crmTab.close();
-                crmTab = null;
-              }
-            }
-          } catch (err) {
-            console.error('[HOMES Popup Controller] Error handling WebSocket message:', err);
-            updateStatus('Error processing interaction event.');
-          }
-        };
-
-        if (window._genesys?.widgets?.bus) {
-          window._genesys.widgets.bus.subscribe('lifecycle', (e) => {
-            if (e?.eventName === 'stop') {
-              if (crmTab && !crmTab.closed) {
-                crmTab.close();
-                crmTab = null;
-                updateStatus('CRM tab closed due to widget lifecycle stop event.');
-            }
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.close();
-                updateStatus('WebSocket closed due to widget lifecycle stop event.');
-              }
-            }  
-          });
-        }
+  
 				
 		// Check for existing active calls
 		checkExistingActiveCalls(user, 0);
@@ -280,7 +209,6 @@
 </body>
 
 </html>
-
 
 
 
