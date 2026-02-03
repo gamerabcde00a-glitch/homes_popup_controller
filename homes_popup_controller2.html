@@ -135,6 +135,7 @@
 			const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
 
 			if (isFirstAgent) {
+				alert('isFirstAgent - true');
 			  const url = new URL(popUrl);
 			  url.searchParams.set('p2', user.email);
 			  updateStatus(`Call control : Opening Homes tab from existing call: ${url.toString()}`);
@@ -205,6 +206,7 @@
               const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
 
               if (isFirstAgent && popUrl && !crmTab) {
+				  alert('isFirstAgent - true and popUrl and !crmTab');
                 const url = new URL(popUrl);
                 url.searchParams.set('p2', user.email); // Add the agent's email as 'p2'
                 updateStatus(`Opening HOMES tab: ${url.toString()}`);
@@ -278,6 +280,7 @@
 </body>
 
 </html>
+
 
 
 
